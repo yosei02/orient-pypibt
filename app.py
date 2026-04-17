@@ -6,7 +6,7 @@ from pypibt import (
     get_grid,
     get_scenario,
     is_valid_mapf_solution,
-    save_configs_for_visualizer,
+    save_configs_for_visualizer_with_orientations,
 )
 
 if __name__ == "__main__":
@@ -45,14 +45,24 @@ if __name__ == "__main__":
 
     # define problem instance
     grid = get_grid(args.map_file)
-    starts, goals = get_scenario(args.scen_file, args.num_agents)
+    starts, goals, initial_orientations = get_scenario(
+        args.scen_file, args.num_agents, with_orientations=True
+    )
 
     # solve MAPF
-    pibt = PIBT(grid, starts, goals, seed=args.seed)
+    pibt = PIBT(
+        grid,
+        starts,
+        goals,
+        seed=args.seed,
+        initial_orientations=initial_orientations,
+    )
     plan = pibt.run(max_timestep=args.max_timestep)
 
     # validation: True -> feasible solution
     print(f"solved: {is_valid_mapf_solution(grid, starts, goals, plan)}")
 
     # save result
-    save_configs_for_visualizer(plan, args.output_file)
+    save_configs_for_visualizer_with_orientations(
+        plan, args.output_file, pibt.orientation_history
+    )

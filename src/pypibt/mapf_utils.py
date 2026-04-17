@@ -5,7 +5,7 @@ standard benchmark files and validating MAPF solutions.
 """
 import os
 import re
-from typing import TypeAlias
+from typing import Literal, TypeAlias, overload
 
 import numpy as np
 
@@ -14,6 +14,8 @@ Grid: TypeAlias = np.ndarray
 Coord: TypeAlias = tuple[int, int]
 Config: TypeAlias = list[Coord]
 Configs: TypeAlias = list[Config]
+Orientation: TypeAlias = Literal["X_PLUS", "X_MINUS", "Y_PLUS", "Y_MINUS"]
+DEFAULT_ORIENTATION: Orientation = "Y_MINUS"
 
 
 def get_grid(map_file: str) -> Grid:
@@ -65,34 +67,84 @@ def get_grid(map_file: str) -> Grid:
     return grid
 
 
-def get_scenario(scen_file: str, N: int | None = None) -> tuple[Config, Config]:
+@overload
+def get_scenario(
+    scen_file: str,
+    N: int | None = None,
+    *,
+    with_orientations: Literal[False] = False,
+) -> tuple[Config, Config]: ...
+
+
+@overload
+def get_scenario(
+    scen_file: str,
+    N: int | None = None,
+    *,
+    with_orientations: Literal[True],
+) -> tuple[Config, Config, list[Orientation]]: ...
+
+
+def get_scenario(
+    scen_file: str,
+    N: int | None = None,
+    *,
+    with_orientations: bool = False,
+) -> tuple[Config, Config] | tuple[Config, Config, list[Orientation]]:
     """Load start and goal configurations from a MAPF scenario file.
 
     Parses a .scen file from the MAPF benchmarks (movingai.com format) and
-    extracts start and goal positions for agents.
+    extracts start and goal positions for agents. An optional final column
+    can define the initial orientation of each agent using one of
+    ``X_PLUS``, ``X_MINUS``, ``Y_PLUS``, or ``Y_MINUS``.
 
     Args:
         scen_file: Path to the .scen file.
         N: Maximum number of agents to load. If None, loads all agents.
+        with_orientations: If True, also returns initial orientations.
 
     Returns:
         A tuple (starts, goals) where each is a list of (y, x) coordinates.
+        If ``with_orientations`` is True, also returns the initial
+        orientation list.
     """
     with open(scen_file, "r") as f:
-        starts, goals = [], []
+        starts, goals, orientations = [], [], []
         for row in f:
-            res = re.match(
-                r"\d+\t.+\.map\t\d+\t\d+\t(\d+)\t(\d+)\t(\d+)\t(\d+)\t.+", row
-            )
-            if res:
-                x_s, y_s, x_g, y_g = [int(res.group(k)) for k in range(1, 5)]
-                starts.append((y_s, x_s))  # align with grid
-                goals.append((y_g, x_g))
+            cols = row.strip().split("\t")
+            if len(cols) < 8 or cols[0] == "version":
+                continue
+            if not cols[1].endswith(".map"):
+                continue
 
-                # check the number of agents
-                if (N is not None) and len(starts) >= N:
-                    break
+            try:
+                x_s = int(cols[4])
+                y_s = int(cols[5])
+                x_g = int(cols[6])
+                y_g = int(cols[7])
+            except ValueError:
+                continue
 
+            orientation = DEFAULT_ORIENTATION
+            if len(cols) >= 10:
+                candidate = cols[9]
+                if candidate in {"X_PLUS", "X_MINUS", "Y_PLUS", "Y_MINUS"}:
+                    orientation = candidate
+                else:
+                    raise ValueError(
+                        f"invalid orientation '{candidate}' in scenario {scen_file}"
+                    )
+
+            starts.append((y_s, x_s))  # align with grid
+            goals.append((y_g, x_g))
+            orientations.append(orientation)
+
+            # check the number of agents
+            if (N is not None) and len(starts) >= N:
+                break
+
+    if with_orientations:
+        return starts, goals, orientations
     return starts, goals
 
 
@@ -148,6 +200,15 @@ def get_neighbors(grid: Grid, coord: Coord) -> list[Coord]:
 
 
 def save_configs_for_visualizer(configs: Configs, filename: str) -> None:
+    """Save solution configurations for visualization."""
+    save_configs_for_visualizer_with_orientations(configs, filename)
+
+
+def save_configs_for_visualizer_with_orientations(
+    configs: Configs,
+    filename: str,
+    orientations: list[list[Orientation]] | None = None,
+) -> None:
     """Save solution configurations for visualization.
 
     Exports the solution in a format compatible with mapf-visualizer tool.
@@ -156,17 +217,34 @@ def save_configs_for_visualizer(configs: Configs, filename: str) -> None:
         configs: List of configurations, where each configuration is a list
             of agent positions (y, x) at a timestep.
         filename: Output file path.
+        orientations: Optional orientation history aligned with ``configs``.
+            When provided, each agent is written as ``(x,y,orientation)``.
 
     Example:
         >>> configs = [[(0, 0), (1, 1)], [(0, 1), (1, 2)]]
-        >>> save_configs_for_visualizer(configs, "output.txt")
+        >>> save_configs_for_visualizer_with_orientations(configs, "output.txt")
     """
+    if orientations is not None:
+        assert len(configs) == len(orientations), "configs and orientations must align"
+
     dirname = os.path.dirname(filename)
     if len(dirname) > 0:
         os.makedirs(dirname, exist_ok=True)
     with open(filename, "w") as f:
         for t, config in enumerate(configs):
-            row = f"{t}:" + "".join([f"({x},{y})," for (y, x) in config]) + "\n"
+            if orientations is None:
+                row = f"{t}:" + "".join([f"({x},{y})," for (y, x) in config]) + "\n"
+            else:
+                row = (
+                    f"{t}:"
+                    + "".join(
+                        [
+                            f"({x},{y},{orientation}),"
+                            for (y, x), orientation in zip(config, orientations[t])
+                        ]
+                    )
+                    + "\n"
+                )
             f.write(row)
 
 

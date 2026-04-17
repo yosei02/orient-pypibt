@@ -2,7 +2,15 @@
 import numpy as np
 
 from .dist_table import DistTable
-from .mapf_utils import Config, Configs, Coord, Grid, get_neighbors
+from .mapf_utils import (
+    DEFAULT_ORIENTATION,
+    Config,
+    Configs,
+    Coord,
+    Grid,
+    Orientation,
+    get_neighbors,
+)
 
 
 class PIBT:
@@ -54,7 +62,14 @@ class PIBT:
         multi-agent pathfinding. See https://kei18.github.io/lacam-project/
     """
 
-    def __init__(self, grid: Grid, starts: Config, goals: Config, seed: int = 0) -> None:
+    def __init__(
+        self,
+        grid: Grid,
+        starts: Config,
+        goals: Config,
+        seed: int = 0,
+        initial_orientations: list[Orientation] | None = None,
+    ) -> None:
         """Initialize PIBT solver.
 
         Args:
@@ -62,11 +77,16 @@ class PIBT:
             starts: Initial positions of all agents (y, x).
             goals: Goal positions of all agents (y, x).
             seed: Random seed for tie-breaking (default: 0).
+            initial_orientations: Initial facing direction for each agent.
+                Defaults to all agents facing negative y.
         """
         self.grid = grid
         self.starts = starts
         self.goals = goals
         self.N = len(self.starts)
+        self.initial_orientations = initial_orientations or [DEFAULT_ORIENTATION] * self.N
+        assert len(self.initial_orientations) == self.N
+        self.orientation_history: list[list[Orientation]] = [self.initial_orientations.copy()]
 
         # distance table
         self.dist_tables = [DistTable(grid, goal) for goal in goals]
@@ -79,6 +99,78 @@ class PIBT:
 
         # used for tie-breaking
         self.rng = np.random.default_rng(seed)
+
+    @staticmethod
+    def _orientation_for_move(src: Coord, dst: Coord) -> Orientation | None:
+        """Return the orientation required to move from src to dst."""
+        if src == dst:
+            return None
+
+        dy = dst[0] - src[0]
+        dx = dst[1] - src[1]
+        if dy == -1 and dx == 0:
+            return "Y_MINUS"
+        if dy == 1 and dx == 0:
+            return "Y_PLUS"
+        if dy == 0 and dx == 1:
+            return "X_PLUS"
+        if dy == 0 and dx == -1:
+            return "X_MINUS"
+        raise ValueError(f"invalid move from {src} to {dst}")
+
+    @staticmethod
+    def _rotation_steps(src: Orientation, dst: Orientation) -> list[Orientation]:
+        """Return the intermediate orientations for shortest 90-degree turns."""
+        order: list[Orientation] = ["X_PLUS", "Y_PLUS", "X_MINUS", "Y_MINUS"]
+        src_idx = order.index(src)
+        dst_idx = order.index(dst)
+
+        clockwise = (dst_idx - src_idx) % len(order)
+        counter_clockwise = (src_idx - dst_idx) % len(order)
+
+        if clockwise <= counter_clockwise:
+            step = 1
+            turns = clockwise
+        else:
+            step = -1
+            turns = counter_clockwise
+
+        orientations: list[Orientation] = []
+        idx = src_idx
+        for _ in range(turns):
+            idx = (idx + step) % len(order)
+            orientations.append(order[idx])
+
+        return orientations
+
+    def _append_rotation_steps(
+        self,
+        configs: Configs,
+        orientations: list[Orientation],
+        orientation_history: list[list[Orientation]],
+        target_config: Config,
+    ) -> None:
+        """Insert wait steps until every moving agent faces its target cell."""
+        rotations: list[list[Orientation]] = []
+        max_turns = 0
+
+        for i, (src, dst) in enumerate(zip(configs[-1], target_config)):
+            desired = self._orientation_for_move(src, dst)
+            if desired is None:
+                turns: list[Orientation] = []
+            else:
+                turns = self._rotation_steps(orientations[i], desired)
+            rotations.append(turns)
+            max_turns = max(max_turns, len(turns))
+
+        for turn_idx in range(max_turns):
+            next_orientations = orientations.copy()
+            for agent_idx, turns in enumerate(rotations):
+                if turn_idx < len(turns):
+                    next_orientations[agent_idx] = turns[turn_idx]
+            configs.append(configs[-1].copy())
+            orientations[:] = next_orientations
+            orientation_history.append(orientations.copy())
 
     def funcPIBT(self, Q_from: Config, Q_to: Config, i: int) -> bool:
         """Core PIBT function for single agent planning with priority inheritance.
@@ -193,10 +285,21 @@ class PIBT:
 
         # main loop, generate sequence of configurations
         configs = [self.starts]
+        orientations = self.initial_orientations.copy()
+        self.orientation_history = [orientations.copy()]
         while len(configs) <= max_timestep:
             # obtain new configuration
             Q = self.step(configs[-1], priorities)
+            self._append_rotation_steps(configs, orientations, self.orientation_history, Q)
+            if len(configs) > max_timestep:
+                break
             configs.append(Q)
+
+            for i, (src, dst) in enumerate(zip(configs[-2], Q)):
+                desired = self._orientation_for_move(src, dst)
+                if desired is not None:
+                    orientations[i] = desired
+            self.orientation_history.append(orientations.copy())
 
             # update priorities & goal check
             flg_fin = True

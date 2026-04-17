@@ -3,12 +3,14 @@ import os
 import numpy as np
 
 from pypibt.mapf_utils import (
+    DEFAULT_ORIENTATION,
     get_grid,
     get_neighbors,
     get_scenario,
     is_valid_coord,
     is_valid_mapf_solution,
     save_configs_for_visualizer,
+    save_configs_for_visualizer_with_orientations,
 )
 
 
@@ -33,6 +35,29 @@ def test_get_scenario():
 
     starts, goals = get_scenario(scen_name, N=3)
     assert len(starts) == 2
+
+
+def test_get_scenario_with_orientations():
+    scen_name = os.path.join(os.path.dirname(__file__), "assets", "3x2.scen")
+    starts, goals, orientations = get_scenario(scen_name, with_orientations=True)
+    assert starts == [(0, 1), (1, 2)]
+    assert goals == [(1, 2), (1, 0)]
+    assert orientations == ["X_PLUS", "Y_MINUS"]
+
+
+def test_get_scenario_defaults_orientation_when_not_present(tmp_path):
+    scen_name = tmp_path / "simple.scen"
+    scen_name.write_text(
+        "version 1\n"
+        "0\t3x2.map\t3\t2\t1\t0\t2\t1\t0\n",
+        encoding="utf-8",
+    )
+
+    starts, goals, orientations = get_scenario(str(scen_name), with_orientations=True)
+
+    assert starts == [(0, 1)]
+    assert goals == [(1, 2)]
+    assert orientations == [DEFAULT_ORIENTATION]
 
 
 def test_is_valid_coord():
@@ -76,6 +101,28 @@ def test_save_configs_for_visualizer():
         [(1, 2), (1, 0)],
     ]
     save_configs_for_visualizer(configs, "./local/tmp.txt")
+
+
+def test_save_configs_for_visualizer_with_orientations(tmp_path):
+    filename = tmp_path / "output.txt"
+    configs = [
+        [(18, 23)],
+        [(18, 23)],
+        [(18, 24)],
+    ]
+    orientations = [
+        ["Y_MINUS"],
+        ["X_PLUS"],
+        ["X_PLUS"],
+    ]
+
+    save_configs_for_visualizer_with_orientations(configs, str(filename), orientations)
+
+    assert filename.read_text(encoding="utf-8").splitlines() == [
+        "0:(23,18,Y_MINUS),",
+        "1:(23,18,X_PLUS),",
+        "2:(24,18,X_PLUS),",
+    ]
 
 
 def test_is_valid_mapf_solution():
