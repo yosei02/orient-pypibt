@@ -172,7 +172,24 @@ class PIBT:
             orientations[:] = next_orientations
             orientation_history.append(orientations.copy())
 
-    def funcPIBT(self, Q_from: Config, Q_to: Config, i: int) -> bool:
+    def _candidate_distance(
+        self, agent_idx: int, src: Coord, current_orientation: Orientation, dst: Coord
+    ) -> int:
+        """Score a next-position candidate with orientation-aware travel cost."""
+        desired = self._orientation_for_move(src, dst)
+        if desired is None:
+            return 1 + self.dist_tables[agent_idx].get(src, current_orientation)
+
+        turn_cost = len(self._rotation_steps(current_orientation, desired))
+        return 1 + turn_cost + self.dist_tables[agent_idx].get(dst, desired)
+
+    def funcPIBT(
+        self,
+        Q_from: Config,
+        Q_to: Config,
+        orientations: list[Orientation],
+        i: int,
+    ) -> bool:
         """Core PIBT function for single agent planning with priority inheritance.
 
         Attempts to assign a collision-free next position for agent i. If
@@ -193,7 +210,10 @@ class PIBT:
         # get candidate next vertices
         C = [Q_from[i]] + get_neighbors(self.grid, Q_from[i])
         self.rng.shuffle(C)  # tie-breaking, randomize
-        C = sorted(C, key=lambda u: self.dist_tables[i].get(u))
+        C = sorted(
+            C,
+            key=lambda u: self._candidate_distance(i, Q_from[i], orientations[i], u),
+        )
 
         # vertex assignment
         for v in C:
@@ -215,7 +235,7 @@ class PIBT:
             if (
                 j != self.NIL
                 and (Q_to[j] == self.NIL_COORD)
-                and (not self.funcPIBT(Q_from, Q_to, j))
+                and (not self.funcPIBT(Q_from, Q_to, orientations, j))
             ):
                 continue
 
@@ -226,7 +246,9 @@ class PIBT:
         self.occupied_nxt[Q_from[i]] = i
         return False
 
-    def step(self, Q_from: Config, priorities: list[float]) -> Config:
+    def step(
+        self, Q_from: Config, orientations: list[Orientation], priorities: list[float]
+    ) -> Config:
         """Compute next configuration for all agents.
 
         Executes one timestep of PIBT by calling funcPIBT for all agents
@@ -250,7 +272,7 @@ class PIBT:
         A = sorted(list(range(N)), key=lambda i: priorities[i], reverse=True)
         for i in A:
             if Q_to[i] == self.NIL_COORD:
-                self.funcPIBT(Q_from, Q_to, i)
+                self.funcPIBT(Q_from, Q_to, orientations, i)
 
         # cleanup
         for q_from, q_to in zip(Q_from, Q_to):
@@ -281,7 +303,10 @@ class PIBT:
         # define priorities
         priorities: list[float] = []
         for i in range(self.N):
-            priorities.append(self.dist_tables[i].get(self.starts[i]) / self.grid.size)
+            priorities.append(
+                self.dist_tables[i].get(self.starts[i], self.initial_orientations[i])
+                / self.grid.size
+            )
 
         # main loop, generate sequence of configurations
         configs = [self.starts]
@@ -289,7 +314,7 @@ class PIBT:
         self.orientation_history = [orientations.copy()]
         while len(configs) <= max_timestep:
             # obtain new configuration
-            Q = self.step(configs[-1], priorities)
+            Q = self.step(configs[-1], orientations, priorities)
             self._append_rotation_steps(configs, orientations, self.orientation_history, Q)
             if len(configs) > max_timestep:
                 break

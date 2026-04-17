@@ -248,6 +248,35 @@ def save_configs_for_visualizer_with_orientations(
             f.write(row)
 
 
+def get_total_path_length(
+    configs: Configs,
+    orientations: list[list[Orientation]] | None = None,
+) -> int:
+    """Compute the sum of per-agent action counts over a plan.
+
+    If orientations are provided, a step contributes to the path length when
+    either the position or orientation of an agent changes. Otherwise, only
+    position changes are counted.
+    """
+    if len(configs) <= 1:
+        return 0
+
+    if orientations is not None:
+        assert len(configs) == len(orientations), "configs and orientations must align"
+
+    total = 0
+    for t in range(1, len(configs)):
+        for i, (prev_pos, curr_pos) in enumerate(zip(configs[t - 1], configs[t])):
+            moved = prev_pos != curr_pos
+            rotated = False
+            if orientations is not None:
+                rotated = orientations[t - 1][i] != orientations[t][i]
+            if moved or rotated:
+                total += 1
+
+    return total
+
+
 def validate_mapf_solution(
     grid: Grid,
     starts: Config,

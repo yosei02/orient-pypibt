@@ -7,6 +7,7 @@ from pypibt.mapf_utils import (
     get_grid,
     get_neighbors,
     get_scenario,
+    get_total_path_length,
     is_valid_coord,
     is_valid_mapf_solution,
     save_configs_for_visualizer,
@@ -123,6 +124,21 @@ def test_save_configs_for_visualizer_with_orientations(tmp_path):
         "1:(23,18,X_PLUS),",
         "2:(24,18,X_PLUS),",
     ]
+
+
+def test_get_total_path_length_with_orientations():
+    configs = [
+        [(0, 0), (1, 1)],
+        [(0, 0), (1, 1)],
+        [(0, 1), (1, 1)],
+    ]
+    orientations = [
+        ["Y_MINUS", "X_PLUS"],
+        ["X_PLUS", "X_PLUS"],
+        ["X_PLUS", "X_PLUS"],
+    ]
+
+    assert get_total_path_length(configs, orientations) == 2
 
 
 def test_is_valid_mapf_solution():

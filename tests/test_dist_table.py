@@ -10,7 +10,9 @@ def test_DistTable():
     goal = (1, 2)
 
     dist_table = DistTable(grid, goal)
-    assert dist_table.get(goal) == 0
-    assert dist_table.get((1, 0)) == 2
-    assert dist_table.get((0, 0)) == 6  # invalid coordination
-    assert dist_table.get((0, 3)) == 6  # invalid coordination
+    assert dist_table.get(goal, "X_PLUS") == 0
+    assert dist_table.get((1, 0), "X_PLUS") == 2
+    assert dist_table.get((1, 0), "Y_PLUS") == 3
+    assert dist_table.get((1, 0), "X_MINUS") == 4
+    assert dist_table.get((0, 0), "X_PLUS") == 24  # invalid coordination
+    assert dist_table.get((0, 3), "X_PLUS") == 24  # invalid coordination

@@ -5,6 +5,7 @@ from pypibt import (
     PIBT,
     get_grid,
     get_scenario,
+    get_total_path_length,
     is_valid_mapf_solution,
     save_configs_for_visualizer_with_orientations,
 )
@@ -58,9 +59,13 @@ if __name__ == "__main__":
         initial_orientations=initial_orientations,
     )
     plan = pibt.run(max_timestep=args.max_timestep)
+    makespan = len(plan) - 1
+    total_path_length = get_total_path_length(plan, pibt.orientation_history)
 
     # validation: True -> feasible solution
     print(f"solved: {is_valid_mapf_solution(grid, starts, goals, plan)}")
+    print(f"steps: {makespan}")
+    print(f"total_path_length: {total_path_length}")
 
     # save result
     save_configs_for_visualizer_with_orientations(

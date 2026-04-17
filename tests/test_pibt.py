@@ -58,3 +58,19 @@ def test_PIBT_requires_two_turn_steps_for_180_degree_rotation():
         [(0, 0)],
     ]
     assert is_valid_mapf_solution(grid, starts, goals, configs)
+
+
+def test_PIBT_prefers_orientation_aware_candidate():
+    grid = np.full((2, 2), True)
+    starts = [(0, 0)]
+    goals = [(1, 1)]
+    pibt = PIBT(grid, starts, goals, initial_orientations=["X_MINUS"])
+
+    configs = pibt.run()
+
+    assert configs[:3] == [
+        [(0, 0)],
+        [(0, 0)],
+        [(1, 0)],
+    ]
+    assert is_valid_mapf_solution(grid, starts, goals, configs)
